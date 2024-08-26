@@ -1,0 +1,47 @@
+{
+    "name": "llm-chat-electron",
+    "version": "1.0.0",
+    "description": "An Electron-based chat application integrating multiple AI models with enhanced features.",
+    "main": "main.js",
+    "scripts": {
+        "start": "electron .",
+        "dev": "electron . --serve",
+        "build": "electron-builder"
+    },
+    "dependencies": {
+        "dotenv": "^16.4.5",
+        "electron": "^25.9.8",
+        "marked": "^4.0.2",
+        "highlight.js": "^11.7.0",
+        "chromadb": "^1.5.0",
+        "langchain": "^0.0.96",
+        "@supabase/supabase-js": "^2.21.0",
+        "openai": "^3.2.1"
+    },
+    "devDependencies": {
+        "electron-builder": "^23.0.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/your-repo/llm-chat-electron.git"
+    },
+    "keywords": [
+        "electron",
+        "openai",
+        "anthropic",
+        "chat",
+        "gpt-4",
+        "claude"
+    ],
+    "author": "Your Name",
+    "license": "ISC",
+    "build": {
+        "appId": "com.example.llm-chat",
+        "files": [
+            "**/*"
+        ],
+        "directories": {
+            "buildResources": "build"
+        }
+    }
+}

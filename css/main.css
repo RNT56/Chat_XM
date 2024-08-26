@@ -1,0 +1,31 @@
+@import 'base.css';
+@import 'theme.css';
+@import 'sidebar.css';
+@import 'chat.css';
+@import 'inputs.css';
+@import 'modal.css';
+@import 'responsive.css';
+@import 'utils.css';
+@import 'highlight.min.css';
+@import 'highlight.min1.css';
+
+/* Add these styles for code blocks */
+pre code.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 1em;
+  border-radius: 5px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.dark-mode pre code.hljs {
+  background-color: #2a2a2a;
+  color: #e0e0e0;
+}
+
+.light-mode pre code.hljs {
+  background-color: #f5f5f5;
+  color: #333;
+}
