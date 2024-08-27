@@ -1,6 +1,7 @@
 export class MessageHandler {
   constructor(chatProcessor) {
     this.chatProcessor = chatProcessor;
+    this.currentChatId = null;
   }
 
   async sendMessage(model, input, outputFormat) {
@@ -8,7 +9,7 @@ export class MessageHandler {
     if (userInput === '') return false;
 
     const chatHistory = document.getElementById('chat-history');
-    const userMessage = this.createMessageElement('user', userInput, 'text');
+    const userMessage = this.createMessageElement('user', userInput, 'text', this.currentChatId);
     chatHistory.appendChild(userMessage);
 
     document.getElementById('user-input').value = '';
@@ -16,13 +17,19 @@ export class MessageHandler {
     this.showTypingIndicator();
 
     try {
-      const response = await window.api.sendMessage(model, userInput, outputFormat);
+      const response = await window.api.sendMessage(model, userInput, outputFormat, this.currentChatId);
       this.hideTypingIndicator();
 
       console.log('Received response:', response);
       console.log('Response format:', response.format);
 
-      const botMessage = this.createMessageElement('bot', response.content, response.format);
+      // Update the current chat ID if it's a new chat
+      if (!this.currentChatId) {
+        this.currentChatId = response.chatId;
+        // You might want to update the UI to show the new chat ID or name
+      }
+
+      const botMessage = this.createMessageElement('bot', response.content, response.format, this.currentChatId);
       chatHistory.appendChild(botMessage);
       chatHistory.scrollTop = chatHistory.scrollHeight;
 
@@ -201,5 +208,16 @@ export class MessageHandler {
       console.error('Error parsing JSON:', error);
       return `<pre><code class="json-raw">${this.escapeHtml(content)}</code></pre>`;
     }
+  }
+
+  // Add a method to set the current chat ID
+  setCurrentChatId(chatId) {
+    this.currentChatId = chatId;
+  }
+
+  // Add a method to clear the chat history when switching chats
+  clearChatHistory() {
+    const chatHistory = document.getElementById('chat-history');
+    chatHistory.innerHTML = '';
   }
 }
