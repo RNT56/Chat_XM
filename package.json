@@ -11,12 +11,14 @@
     "dependencies": {
         "@supabase/supabase-js": "^2.45.2",
         "chromadb": "^1.5.0",
+        "chromedriver": "^128.0.0",
         "dotenv": "^16.4.5",
         "electron": "^25.9.8",
         "highlight.js": "^11.7.0",
         "langchain": "^0.0.96",
         "marked": "^4.0.2",
-        "openai": "^3.2.1"
+        "openai": "^3.2.1",
+        "selenium-webdriver": "^4.8.0"
     },
     "devDependencies": {
         "electron-builder": "^23.0.0"
@@ -34,14 +36,5 @@
         "claude"
     ],
     "author": "Your Name",
-    "license": "ISC",
-    "build": {
-        "appId": "com.example.llm-chat",
-        "files": [
-            "**/*"
-        ],
-        "directories": {
-            "buildResources": "build"
-        }
-    }
+    "license": "ISC"
 }

@@ -40,10 +40,11 @@ export class UIHandler {
     const model = document.getElementById('model-select').value;
     const outputFormat = document.getElementById('output-format').value;
     const userInput = document.getElementById('user-input').value.trim();
+    const useWebSearch = document.getElementById('use-web-search').checked;
 
     if (userInput === '') return;
 
-    const success = await this.messageHandler.sendMessage(model, userInput, outputFormat);
+    const success = await this.messageHandler.sendMessage(model, userInput, outputFormat, useWebSearch);
     if (success) {
       this.chatHistoryManager.saveChatHistory();
     }

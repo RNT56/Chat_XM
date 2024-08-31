@@ -3,9 +3,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 console.log('Preload script started');
 
 contextBridge.exposeInMainWorld('api', {
-  sendMessage: async (model, input, outputFormat, chatId) => {
+  sendMessage: async (model, input, outputFormat, chatId, useWebSearch) => {
     try {
-      return await ipcRenderer.invoke('send-message', model, input, outputFormat, chatId);
+      return await ipcRenderer.invoke('send-message', model, input, outputFormat, chatId, useWebSearch);
     } catch (error) {
       console.error('Error in sendMessage:', error);
       throw error;

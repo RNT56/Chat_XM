@@ -193,7 +193,16 @@ async function getChatMessages(chatId) {
 
     if (error) throw error;
     console.log('Chat messages retrieved:', data.length);
-    return data;
+
+    // Format messages in JSON
+    const formattedMessages = data.map(message => ({
+      id: message.id, // Include the message ID
+      role: message.role,
+      content: message.content,
+      format: message.format
+    }));
+
+    return formattedMessages;
   } catch (error) {
     console.error('Error getting chat messages:', error);
     return [];

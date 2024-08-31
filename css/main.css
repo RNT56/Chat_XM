@@ -29,3 +29,25 @@ pre code.hljs {
   background-color: #f5f5f5;
   color: #333;
 }
+
+/* ... (existing styles) */
+
+.web-search-results {
+  background-color: rgba(0, 0, 0, 0.05);
+  border-left: 3px solid #007bff;
+  margin: 10px 0;
+  padding: 10px;
+  font-size: 0.9em;
+}
+
+.web-search-results h4 {
+  margin-top: 0;
+  color: #007bff;
+}
+
+.web-search-results pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* ... (rest of the existing styles) */

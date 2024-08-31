@@ -5,6 +5,12 @@ const path = require('path');
 const https = require('https');
 const fs = require('fs');
 const supabaseClient = require('./supabaseClient');
+const axios = require('axios');
+const { exec } = require('child_process');
+const util = require('util');
+const { Builder, By, Key, until } = require('selenium-webdriver');
+const chrome = require('selenium-webdriver/chrome');
+const url = require('url');
 
 let OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -58,7 +64,7 @@ app.on('window-all-closed', () => {
   }
 });
 
-ipcMain.handle('send-message', async (event, model, input, outputFormat, chatId) => {
+ipcMain.handle('send-message', async (event, model, input, outputFormat, chatId, useWebSearch) => {
   return new Promise(async (resolve, reject) => {
     // Rate limiting check
     const now = Date.now();
@@ -74,20 +80,13 @@ ipcMain.handle('send-message', async (event, model, input, outputFormat, chatId)
     try {
       let chat;
       if (!chatId) {
-        // Create a new chat if chatId is not provided
         chat = await supabaseClient.createChat('New Chat');
         chatId = chat ? chat.id : null;
       }
 
       // Create a new message in the database
       if (chatId) {
-        await supabaseClient.createChatMessage(chatId, 'user', input, 'text');
-      }
-
-      // Modify the input if JSON output is requested
-      let modifiedInput = input;
-      if (outputFormat === 'json' && !input.toLowerCase().includes('json')) {
-        modifiedInput = `${input} Please provide the response in JSON format.`;
+        await supabaseClient.createChatMessage(chatId, 'user', input, outputFormat);
       }
 
       // Fetch previous messages for context
@@ -99,17 +98,52 @@ ipcMain.handle('send-message', async (event, model, input, outputFormat, chatId)
           content: msg.content
         }));
       }
-      conversationHistory.push({ role: 'user', content: modifiedInput });
+      conversationHistory.push({ role: 'user', content: input });
 
-      const data = JSON.stringify({
+      let webSearchResults = '';
+      if (useWebSearch) {
+        const searchResults = await performWebSearch(input, 2, 8);
+        if (searchResults.length > 0) {
+          webSearchResults = JSON.stringify(searchResults);
+
+          // Add web search results to conversation history
+          conversationHistory.push({
+            role: 'system',
+            content: `Web search results for "${input}":\n${webSearchResults}\n\nPlease analyze these results, compare the information from different sources, and use them to provide a comprehensive and accurate answer to the user's query. Highlight any conflicting information and provide a balanced view if there are disagreements between sources. Note that ${searchResults.length} source${searchResults.length > 1 ? 's were' : ' was'} found.`
+          });
+        } else {
+          conversationHistory.push({
+            role: 'system',
+            content: `No web search results were found for "${input}". Please provide the best answer you can based on your existing knowledge.`
+          });
+        }
+      }
+
+      const requestBody = {
         model: model,
-        messages: conversationHistory,
-        response_format: { type: outputFormat === 'json' ? 'json_object' : 'text' },
-      });
+        messages: [
+          { role: 'system', content: 'You are a helpful AI assistant with access to current information through web search when provided. Use this information to provide up-to-date and accurate responses.' },
+          ...conversationHistory
+        ],
+      };
 
-      console.log('Sending request with model:', model);
-      console.log('Input:', modifiedInput);
-      console.log('Output format:', outputFormat);
+      if (outputFormat === 'json') {
+        requestBody.response_format = { type: 'json_object' };
+      }
+
+      const data = JSON.stringify(requestBody);
+
+      console.log('Sending request with body:', data);
+
+      // Validate JSON
+      try {
+        JSON.parse(data);
+        console.log('JSON is valid');
+      } catch (jsonError) {
+        console.error('Invalid JSON:', jsonError);
+        reject(new Error('Invalid JSON payload'));
+        return;
+      }
 
       const options = {
         hostname: 'api.openai.com',
@@ -119,7 +153,7 @@ ipcMain.handle('send-message', async (event, model, input, outputFormat, chatId)
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          'Content-Length': data.length
+          'Content-Length': Buffer.byteLength(data)
         }
       };
 
@@ -148,7 +182,8 @@ ipcMain.handle('send-message', async (event, model, input, outputFormat, chatId)
             resolve({
               content,
               format: outputFormat,
-              chatId: chatId
+              chatId: chatId,
+              webSearchResults: webSearchResults
             });
           } else {
             reject(new Error(`Request failed with status code ${res.statusCode}: ${responseBody}`));
@@ -169,6 +204,144 @@ ipcMain.handle('send-message', async (event, model, input, outputFormat, chatId)
     }
   });
 });
+
+async function performWebSearch(query, minResults = 2, maxResults = 8) {
+  let driver;
+  try {
+    const options = new chrome.Options();
+    options.addArguments('--headless');
+    
+    driver = await new Builder()
+      .forBrowser('chrome')
+      .setChromeOptions(options)
+      .build();
+
+    await driver.get(`https://www.google.com/search?q=${encodeURIComponent(query)}`);
+    await driver.wait(until.elementLocated(By.css('div.g')), 10000);
+
+    let searchResults = [];
+    let attempts = 0;
+    const maxAttempts = 5; // Increased from 3 to 5
+
+    while (searchResults.length < maxResults && attempts < maxAttempts) {
+      try {
+        let results = await driver.findElements(By.css('div.g'));
+        for (let i = searchResults.length; i < Math.min(results.length, maxResults); i++) {
+          try {
+            let result = results[i];
+            let title = await driver.wait(until.elementIsVisible(await result.findElement(By.css('h3'))), 5000).getText();
+            let link = await driver.wait(until.elementIsVisible(await result.findElement(By.css('a'))), 5000).getAttribute('href');
+            let summary = await driver.wait(until.elementIsVisible(await result.findElement(By.css('div.VwiC3b'))), 5000).getText();
+
+            let datePublished = await extractDatePublished(result);
+            let domainName = extractDomainName(link);
+            let pageContent = await extractPageContent(driver, link);
+
+            searchResults.push({
+              title,
+              link,
+              summary,
+              datePublished,
+              domainName,
+              pageContent
+            });
+          } catch (elementError) {
+            console.warn(`Skipping result ${i} due to error:`, elementError);
+          }
+        }
+      } catch (error) {
+        console.warn(`Attempt ${attempts + 1} failed:`, error);
+      }
+      attempts++;
+      if (searchResults.length < maxResults) {
+        await driver.executeScript('window.scrollTo(0, document.body.scrollHeight)');
+        await driver.sleep(1000);
+      }
+    }
+
+    // If we don't have the minimum required results, but we have at least one, return what we have
+    if (searchResults.length < minResults && searchResults.length > 0) {
+      console.warn(`Found fewer results than the minimum required. Minimum: ${minResults}, Found: ${searchResults.length}`);
+      return searchResults;
+    }
+
+    // If we have no results at all, throw an error
+    if (searchResults.length === 0) {
+      throw new Error(`No search results found for query: ${query}`);
+    }
+
+    return searchResults;
+  } catch (error) {
+    console.error('Error performing web search:', error);
+    throw error;
+  } finally {
+    if (driver) {
+      await driver.quit();
+    }
+  }
+}
+
+async function extractDatePublished(resultElement) {
+  try {
+    let dateElement = await resultElement.findElement(By.css('span.MUxGbd.wuQ4Ob.WZ8Tjf'));
+    return await dateElement.getText();
+  } catch (error) {
+    return 'Date not found';
+  }
+}
+
+function extractDomainName(link) {
+  try {
+    const parsedUrl = new URL(link);
+    return parsedUrl.hostname;
+  } catch (error) {
+    return 'Domain not found';
+  }
+}
+
+async function extractPageContent(driver, link) {
+  try {
+    await driver.get(link);
+    await driver.wait(until.elementLocated(By.css('body')), 10000);
+
+    const mainText = await driver.executeScript(`
+      return document.body.innerText
+        .replace(/\\s+/g, ' ')
+        .trim()
+        .substring(0, 1000);
+    `);
+
+    const headings = await driver.executeScript(`
+      return Array.from(document.querySelectorAll('h1, h2, h3'))
+        .map(h => h.innerText.trim())
+        .filter(h => h.length > 0)
+        .slice(0, 5);
+    `);
+
+    const links = await driver.executeScript(`
+      return document.links.length;
+    `);
+
+    const images = await driver.executeScript(`
+      return document.images.length;
+    `);
+
+    return {
+      mainText,
+      headings,
+      links,
+      images
+    };
+  } catch (error) {
+    console.error('Error extracting page content:', error);
+    return {
+      mainText: 'Content extraction failed',
+      headings: [],
+      links: 0,
+      images: 0
+    };
+  }
+}
 
 ipcMain.handle('update-api-key', async (event, apiKey) => {
   OPENAI_API_KEY = apiKey;
@@ -254,28 +427,3 @@ ipcMain.handle('get-chat-messages', async (event, chatId) => {
     throw error;
   }
 });
-
-function toggleTheme() {
-    const body = document.body;
-    const isDarkMode = body.classList.toggle('dark-mode');
-    body.classList.toggle('light-mode', !isDarkMode);
-
-    // Toggle highlight.js stylesheets
-    document.getElementById('highlight-dark').disabled = !isDarkMode;
-    document.getElementById('highlight-light').disabled = isDarkMode;
-
-    // Save the theme preference (you can add this if you want to persist the theme)
-    localStorage.setItem('darkMode', isDarkMode);
-}
-
-// Call this function when initializing your app
-function initializeTheme() {
-    const isDarkMode = localStorage.getItem('darkMode') === 'true';
-    document.body.classList.toggle('dark-mode', isDarkMode);
-    document.body.classList.toggle('light-mode', !isDarkMode);
-
-    document.getElementById('highlight-dark').disabled = !isDarkMode;
-    document.getElementById('highlight-light').disabled = isDarkMode;
-}
-
-// Make sure to call initializeTheme() when your app starts

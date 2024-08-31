@@ -3,6 +3,7 @@ export class ChatHistoryManager {
     this.messageHandler = messageHandler;
     this.uiHandler = uiHandler;
     this.currentChatId = null;
+    this.isNewChat = true;
     this.deleteButton = null;
     this.checkedChats = new Set();
     this.initializeDeleteButton();
@@ -20,8 +21,8 @@ export class ChatHistoryManager {
   async createNewChat(model, outputFormat) {
     console.log('Creating new chat:', { model, outputFormat });
 
-    // Save the complete previous chat to Supabase
-    if (this.currentChatId) {
+    // Save the complete previous chat to Supabase if it's not a new chat
+    if (this.currentChatId && !this.isNewChat) {
       console.log('Saving previous chat:', this.currentChatId);
       await this.saveChatHistory();
     }
@@ -32,21 +33,10 @@ export class ChatHistoryManager {
     document.getElementById('user-input').value = '';
     console.log('Chat window cleaned');
 
-    // Create a new chat in Supabase
-    try {
-      const newChat = await window.api.createChat('New chat');
-      console.log('New chat created in Supabase:', newChat);
-      if (newChat && newChat.id) {
-        this.currentChatId = newChat.id;
-        this.messageHandler.setCurrentChatId(this.currentChatId);
-      } else {
-        throw new Error('Failed to create new chat: Invalid response from server');
-      }
-    } catch (error) {
-      console.error('Error creating new chat in Supabase:', error);
-      this.displayError('Failed to create a new chat. Please try again.');
-      return;
-    }
+    // Reset the current chat ID and set isNewChat to true
+    this.currentChatId = null;
+    this.isNewChat = true;
+    this.messageHandler.setCurrentChatId(null);
 
     // Update the model and output format
     document.getElementById('model-select').value = model;
@@ -92,17 +82,39 @@ export class ChatHistoryManager {
     }
 
     try {
-      // Update the chat name with the first message content
-      const chatName = messages[0].content.substring(0, 30) + '...';
-      console.log('Updating chat name:', chatName);
-      await window.api.updateChat(this.currentChatId, chatName);
+      if (this.isNewChat) {
+        // Create a new chat in Supabase
+        const chatName = messages[0].content.substring(0, 30) + '...';
+        console.log('Creating new chat:', chatName);
+        const newChat = await window.api.createChat(chatName);
+        this.currentChatId = newChat.id;
+        this.messageHandler.setCurrentChatId(this.currentChatId);
+        this.isNewChat = false;
 
-      // Save all messages to Supabase
-      for (const message of messages) {
-        console.log('Saving message:', message);
-        await window.api.createChatMessage(this.currentChatId, message.role, message.content, message.format);
+        // Save all messages to Supabase
+        for (const message of messages) {
+          console.log('Saving new message:', message);
+          await window.api.createChatMessage(this.currentChatId, message.role, message.content, message.format);
+        }
+      } else {
+        // Update the chat name with the first message content
+        const chatName = messages[0].content.substring(0, 30) + '...';
+        console.log('Updating chat name:', chatName);
+        await window.api.updateChat(this.currentChatId, chatName);
+
+        // Get existing messages from Supabase
+        const existingMessages = await window.api.getChatMessages(this.currentChatId);
+        const existingMessageIds = new Set(existingMessages.map(m => m.id));
+
+        // Save only new messages to Supabase
+        for (const message of messages) {
+          if (!existingMessageIds.has(message.id)) {
+            console.log('Saving new message:', message);
+            await window.api.createChatMessage(this.currentChatId, message.role, message.content, message.format);
+          }
+        }
       }
-      console.log('All messages saved successfully');
+      console.log('All new messages saved successfully');
     } catch (error) {
       console.error('Error saving chat history:', error);
       this.displayError('Failed to save chat history. Some data may be lost.');
@@ -119,6 +131,8 @@ export class ChatHistoryManager {
       this.messageHandler.clearChatHistory();
 
       const chatHistory = document.getElementById('chat-history');
+      chatHistory.innerHTML = ''; // Clear existing messages
+
       messages.forEach(msg => {
         const messageElement = this.messageHandler.createMessageElement(msg.role, msg.content, msg.format, chatId);
         chatHistory.appendChild(messageElement);

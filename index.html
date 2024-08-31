@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="css/main.css">
     <link rel="stylesheet" href="css/highlight.min.css" id="highlight-dark">
     <link rel="stylesheet" href="css/highlight.min1.css" id="highlight-light">
+    
     <script src="highlight.min.js"></script>
 </head>
 <body class="dark-mode">
@@ -51,8 +52,13 @@
                     <span></span>
                 </div>
                 <div class="input-container">
-                    <textarea id="user-input" placeholder="Type your message..."></textarea>
+                    <input type="text" id="user-input" placeholder="Type your message...">
                     <button id="send-button">Send</button>
+                    <div class="input-options">
+                        <label for="use-web-search">
+                            <input type="checkbox" id="use-web-search"> Use Web Search
+                        </label>
+                    </div>
                 </div>
             </div>
         </div>
