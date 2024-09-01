@@ -55,10 +55,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize theme
     initializeTheme();
 
-    // Initialize with a new chat
-    const defaultModel = document.getElementById('model-select').value;
-    const defaultOutputFormat = document.getElementById('output-format').value;
-    chatHistoryManager.createNewChat(defaultModel, defaultOutputFormat);
+    // Initialize with a new chat only if there's no current chat
+    if (!messageHandler.currentChatId) {
+        const defaultModel = document.getElementById('model-select').value;
+        const defaultOutputFormat = document.getElementById('output-format').value;
+        chatHistoryManager.createNewChat(defaultModel, defaultOutputFormat);
+    }
 
     // Add this observer to re-run syntax highlighting when chat content changes
     const chatContent = document.getElementById('chat-history');
@@ -76,11 +78,12 @@ document.addEventListener('DOMContentLoaded', () => {
         window.electron.send('drag-window');
     });
 
-    // Add event listener for send button
+    // Modify the send button event listener
     document.getElementById('send-button').addEventListener('click', async () => {
         const input = document.getElementById('user-input');
         const userMessage = input.value.trim();
-        const model = document.getElementById('model-select').value; // Get selected model
+        const model = document.getElementById('model-select').value;
+        const outputFormat = document.getElementById('output-format').value;
         if (userMessage) {
             displayMessage('user', userMessage);
 

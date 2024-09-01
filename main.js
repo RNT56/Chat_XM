@@ -11,6 +11,7 @@ const { Builder, By, Key, until } = require('selenium-webdriver');
 const chrome = require('selenium-webdriver/chrome');
 const url = require('url');
 const { getChatCompletion } = require('./src/perplexityAPI');
+const { getClaudeCompletion } = require('./src/anthropicAPI');
 
 let OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -33,11 +34,11 @@ function createWindow() {
       nodeIntegration: false,
       enableRemoteModule: false
     },
-    frame: true, // Keep the native frame
-    transparent: false, // Enable transparency for the content
-    titleBarStyle: 'default', // Keep the default title bar
-    backgroundColor: '#00000000', // Transparent background
-    vibrancy: 'under-window', // Add vibrancy effect (macOS only)
+    frame: true,
+    transparent: false,
+    titleBarStyle: 'default',
+    backgroundColor: '#00000000',
+    vibrancy: 'under-window',
   });
 
   mainWindow.loadFile('index.html');
@@ -90,20 +91,16 @@ ipcMain.handle('send-message', async (event, model, input, outputFormat, chatId,
       }
 
       // Create a new message in the database
-      if (chatId) {
-        await supabaseClient.createChatMessage(chatId, 'user', input, outputFormat);
-      }
+      const userMessage = await supabaseClient.createChatMessage(chatId, 'user', input, outputFormat);
 
       // Fetch previous messages for context
-      let conversationHistory = [];
-      if (chatId) {
-        const previousMessages = await supabaseClient.getChatMessages(chatId);
-        conversationHistory = previousMessages.map(msg => ({
-          role: msg.role,
-          content: msg.content
-        }));
-      }
-      conversationHistory.push({ role: 'user', content: input });
+      let conversationHistory = await supabaseClient.getChatMessages(chatId);
+      
+      // Add the current user message to the conversation history
+      conversationHistory.push({
+        role: 'user',
+        content: input
+      });
 
       let webSearchResults = '';
       if (useWebSearch) {
@@ -124,7 +121,7 @@ ipcMain.handle('send-message', async (event, model, input, outputFormat, chatId,
         }
       }
       const requestBody = {
-        model: model === 'perplexity' ? 'llama-3.1-sonar-small-128k-online' : model, // Update model name
+        model: model === 'perplexity' ? 'llama-3.1-sonar-small-128k-online' : model,
         messages: [
           { role: 'system', content: 'You are a helpful AI assistant with access to current information through web search when provided. Use this information to provide up-to-date and accurate responses.' },
           ...conversationHistory
@@ -155,9 +152,24 @@ ipcMain.handle('send-message', async (event, model, input, outputFormat, chatId,
           const content = response.choices[0].message.content;
 
           // Store the bot's response in the database
-          if (chatId) {
-            await supabaseClient.createChatMessage(chatId, 'assistant', content, outputFormat);
-          }
+          await supabaseClient.createChatMessage(chatId, 'assistant', content, outputFormat);
+
+          resolve({
+            content,
+            format: outputFormat,
+            chatId: chatId,
+            webSearchResults: webSearchResults
+          });
+        } catch (error) {
+          reject(error);
+        }
+      } else if (model === 'sonnet-3.5') {
+        try {
+          const response = await getClaudeCompletion(conversationHistory);
+          const content = response;
+
+          // Store the bot's response in the database
+          await supabaseClient.createChatMessage(chatId, 'assistant', content, outputFormat);
 
           resolve({
             content,
@@ -198,9 +210,7 @@ ipcMain.handle('send-message', async (event, model, input, outputFormat, chatId,
               const content = responseData.choices[0].message.content;
 
               // Store the bot's response in the database
-              if (chatId) {
-                await supabaseClient.createChatMessage(chatId, 'assistant', content, outputFormat);
-              }
+              await supabaseClient.createChatMessage(chatId, 'assistant', content, outputFormat);
 
               resolve({
                 content,
@@ -245,7 +255,7 @@ async function performWebSearch(query, minResults = 2, maxResults = 8) {
 
     let searchResults = [];
     let attempts = 0;
-    const maxAttempts = 5; // Increased from 3 to 5
+    const maxAttempts = 5;
 
     while (searchResults.length < maxResults && attempts < maxAttempts) {
       try {
@@ -283,13 +293,11 @@ async function performWebSearch(query, minResults = 2, maxResults = 8) {
       }
     }
 
-    // If we don't have the minimum required results, but we have at least one, return what we have
     if (searchResults.length < minResults && searchResults.length > 0) {
       console.warn(`Found fewer results than the minimum required. Minimum: ${minResults}, Found: ${searchResults.length}`);
       return searchResults;
     }
 
-    // If we have no results at all, throw an error
     if (searchResults.length === 0) {
       throw new Error(`No search results found for query: ${query}`);
     }
@@ -370,7 +378,6 @@ async function extractPageContent(driver, link) {
 ipcMain.handle('update-api-key', async (event, apiKey) => {
   OPENAI_API_KEY = apiKey;
 
-  // Update the .env file
   const envPath = path.join(__dirname, '.env');
   let envContent = '';
 
@@ -383,7 +390,6 @@ ipcMain.handle('update-api-key', async (event, apiKey) => {
 
   fs.writeFileSync(envPath, envContent);
 
-  // Reload the environment variables
   require('dotenv').config();
 
   return { success: true };

@@ -4,6 +4,7 @@ export class MessageHandler {
     this.saveChatHistory = saveChatHistoryCallback;
     this.currentChatId = null;
     this.initializeWebSearchToggle();
+    this.loadingExistingChat = false;
   }
 
   async sendMessage(model, input, outputFormat) {
@@ -12,7 +13,8 @@ export class MessageHandler {
     if (userInput === '') return false;
 
     const chatHistory = document.getElementById('chat-history');
-    const userMessage = this.createMessageElement('user', userInput, outputFormat, this.currentChatId);
+    const userMessageId = this.generateUniqueId();
+    const userMessage = this.createMessageElement('user', userInput, outputFormat, this.currentChatId, userMessageId);
     chatHistory.appendChild(userMessage);
 
     document.getElementById('user-input').value = '';
@@ -22,13 +24,11 @@ export class MessageHandler {
     try {
       const response = await window.api.sendMessage(model, userInput, outputFormat, this.currentChatId, useWebSearch);
 
-      // Update the current chat ID if a new chat was created
-      if (response.chatId) {
-        this.setCurrentChatId(response.chatId);
-      }
+      // Generate a unique ID for the assistant message
+      const assistantMessageId = this.generateUniqueId();
 
       // Create bot message
-      const botMessageElement = this.createMessageElement('assistant', response.content, response.format, this.currentChatId);
+      const botMessageElement = this.createMessageElement('assistant', response.content, response.format, this.currentChatId, assistantMessageId);
       chatHistory.appendChild(botMessageElement);
 
       // If web search was used and results are not empty, display them
@@ -39,17 +39,11 @@ export class MessageHandler {
 
       chatHistory.scrollTop = chatHistory.scrollHeight;
 
-      // Save chat history after receiving bot response
-      if (typeof this.saveChatHistory === 'function') {
-        await this.saveChatHistory();
-      } else {
-        console.warn('saveChatHistory callback is not properly set');
-      }
-
       return true;
     } catch (error) {
       console.error('Error sending message:', error);
       this.displayErrorMessage('An error occurred while sending the message. Please try again.');
+      return false;
     } finally {
       this.hideTypingIndicator();
     }
@@ -113,11 +107,13 @@ export class MessageHandler {
     return webSearchDiv;
   }
 
-  createMessageElement(role, content, format = 'text', chatId) {
+  createMessageElement(role, content, format = 'text', chatId, messageId) {
     const messageDiv = document.createElement('div');
     messageDiv.classList.add('message', `${role}-message`);
     messageDiv.dataset.chatId = chatId;
-    messageDiv.dataset.id = this.generateUniqueId();
+    messageDiv.dataset.id = messageId;
+    messageDiv.dataset.format = format;
+    messageDiv.dataset.originalContent = content;
     
     const contentDiv = document.createElement('div');
     contentDiv.classList.add('message-content');
@@ -274,20 +270,25 @@ export class MessageHandler {
 
   async loadChatHistory(chatId) {
     try {
+      this.loadingExistingChat = true;
       const messages = await window.api.getChatMessages(chatId);
       const chatHistory = document.getElementById('chat-history');
       chatHistory.innerHTML = '';
 
       messages.forEach(message => {
-        const messageElement = this.createMessageElement(message.role, message.content, message.format || 'markdown', chatId);
+        const messageElement = this.createMessageElement(message.role, message.content, message.format || 'markdown', chatId, message.id);
+        messageElement.dataset.saved = 'true'; // Mark as saved
         chatHistory.appendChild(messageElement);
       });
 
       chatHistory.scrollTop = chatHistory.scrollHeight;
       this.applyCodeHighlighting(chatHistory);
+      this.setCurrentChatId(chatId);
     } catch (error) {
       console.error('Error loading chat history:', error);
       this.displayErrorMessage(`Error loading chat history: ${error.message}`);
+    } finally {
+      this.loadingExistingChat = false;
     }
   }
 

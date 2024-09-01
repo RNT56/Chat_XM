@@ -21,6 +21,13 @@ export class ChatHistoryManager {
   async createNewChat(model, outputFormat) {
     console.log('Creating new chat:', { model, outputFormat });
 
+    // If current chat is empty, update it instead of creating a new one
+    if (this.currentChatId && this.isNewChat) {
+      console.log('Updating existing empty chat:', this.currentChatId);
+      await this.updateExistingChat(model, outputFormat);
+      return;
+    }
+
     // Save the complete previous chat to Supabase if it's not a new chat
     if (this.currentChatId && !this.isNewChat) {
       console.log('Saving previous chat:', this.currentChatId);
@@ -33,26 +40,54 @@ export class ChatHistoryManager {
     document.getElementById('user-input').value = '';
     console.log('Chat window cleaned');
 
-    // Reset the current chat ID and set isNewChat to true
-    this.setCurrentChatId(null);
-    this.isNewChat = true;
-    this.messageHandler.setCurrentChatId(null);
-
     // Update the model and output format
     document.getElementById('model-select').value = model;
     document.getElementById('output-format').value = outputFormat;
     console.log('Model and output format updated in UI');
 
-    // Add a new chat indicator to the chat window
-    const newChatIndicator = document.createElement('div');
-    newChatIndicator.textContent = `New chat started with model: ${model} and output format: ${outputFormat}`;
-    newChatIndicator.classList.add('new-chat-indicator');
-    chatHistory.appendChild(newChatIndicator);
-    console.log('New chat indicator added to chat window');
+    // Create a new chat in Supabase
+    const chatName = `New chat (${model})`;
+    console.log('Creating new chat in Supabase:', chatName);
+    try {
+      const newChat = await window.api.createChat(chatName);
+      this.setCurrentChatId(newChat.id);
+      this.isNewChat = true;
+      console.log('New chat created in Supabase:', newChat.id);
 
-    // Update the chat list in the sidebar
-    console.log('Updating chat list in sidebar');
-    await this.updateChatList();
+      // Add a new chat indicator to the chat window
+      const newChatIndicator = document.createElement('div');
+      newChatIndicator.textContent = `New chat started with model: ${model} and output format: ${outputFormat}`;
+      newChatIndicator.classList.add('new-chat-indicator');
+      chatHistory.appendChild(newChatIndicator);
+      console.log('New chat indicator added to chat window');
+    } catch (error) {
+      console.error('Error creating new chat:', error);
+      this.displayError('Failed to create new chat. Please try again.');
+    }
+  }
+
+  async updateExistingChat(model, outputFormat) {
+    try {
+      await window.api.updateChat(this.currentChatId, `New chat (${model})`);
+      document.getElementById('model-select').value = model;
+      document.getElementById('output-format').value = outputFormat;
+      console.log('Existing chat updated:', this.currentChatId);
+
+      // Update the chat indicator
+      const chatHistory = document.getElementById('chat-history');
+      const newChatIndicator = chatHistory.querySelector('.new-chat-indicator');
+      if (newChatIndicator) {
+        newChatIndicator.textContent = `Chat updated with model: ${model} and output format: ${outputFormat}`;
+      } else {
+        const indicator = document.createElement('div');
+        indicator.textContent = `Chat updated with model: ${model} and output format: ${outputFormat}`;
+        indicator.classList.add('new-chat-indicator');
+        chatHistory.appendChild(indicator);
+      }
+    } catch (error) {
+      console.error('Error updating existing chat:', error);
+      this.displayError('Failed to update chat. Please try again.');
+    }
   }
 
   async saveChatHistory() {
@@ -64,15 +99,13 @@ export class ChatHistoryManager {
 
     const chatHistory = document.getElementById('chat-history');
     const messages = Array.from(chatHistory.children)
-      .filter(el => el.classList.contains('message'))
-      .map(msg => {
-        const contentElement = msg.querySelector('.message-content');
-        return {
-          role: msg.classList.contains('user-message') ? 'user' : 'assistant',
-          content: msg.dataset.originalContent || contentElement.textContent,
-          format: msg.dataset.format || 'text'
-        };
-      });
+      .filter(el => el.classList.contains('message') && !el.dataset.saved)
+      .map(msg => ({
+        id: msg.dataset.id,
+        role: msg.classList.contains('user-message') ? 'user' : 'assistant',
+        content: msg.dataset.originalContent || msg.querySelector('.message-content').textContent,
+        format: msg.dataset.format || 'text'
+      }));
 
     console.log('Messages to save:', messages);
 
@@ -82,38 +115,26 @@ export class ChatHistoryManager {
     }
 
     try {
-      if (this.isNewChat) {
-        // Create a new chat in Supabase
-        const chatName = messages[0].content.substring(0, 30) + '...';
-        console.log('Creating new chat:', chatName);
-        const newChat = await window.api.createChat(chatName);
-        this.setCurrentChatId(newChat.id);
-        this.isNewChat = false;
+      // Update the chat name with the first message content
+      const chatName = messages[0].content.substring(0, 30) + '...';
+      console.log('Updating chat name:', chatName);
+      await window.api.updateChat(this.currentChatId, chatName);
 
-        // Save all messages to Supabase
-        for (const message of messages) {
-          console.log('Saving new message:', message);
-          await window.api.createChatMessage(this.currentChatId, message.role, message.content, message.format);
-        }
-      } else {
-        // Update the chat name with the first message content
-        const chatName = messages[0].content.substring(0, 30) + '...';
-        console.log('Updating chat name:', chatName);
-        await window.api.updateChat(this.currentChatId, chatName);
+      // Get existing messages from Supabase
+      const existingMessages = await window.api.getChatMessages(this.currentChatId);
+      const existingMessageIds = new Set(existingMessages.map(m => m.id));
 
-        // Get existing messages from Supabase
-        const existingMessages = await window.api.getChatMessages(this.currentChatId);
-        const existingMessageIds = new Set(existingMessages.map(m => m.id));
-
-        // Save only new messages to Supabase
-        for (const message of messages) {
-          if (!existingMessageIds.has(message.id)) {
-            console.log('Saving new message:', message);
-            await window.api.createChatMessage(this.currentChatId, message.role, message.content, message.format);
-          }
-        }
+      // Save only new messages to Supabase
+      for (const message of messages) {
+        console.log('Saving new message:', message);
+        await window.api.createChatMessage(this.currentChatId, message.role, message.content, message.format, message.id);
       }
       console.log('All new messages saved successfully');
+      
+      // Update the chat list after saving messages
+      await this.updateChatList();
+      
+      this.isNewChat = false;
     } catch (error) {
       console.error('Error saving chat history:', error);
       this.displayError('Failed to save chat history. Some data may be lost.');
@@ -125,20 +146,21 @@ export class ChatHistoryManager {
     try {
       const messages = await window.api.getChatMessages(chatId);
       console.log('Retrieved messages:', messages);
-      this.setCurrentChatId(chatId);
-      this.messageHandler.clearChatHistory();
-
+      
+      this.highlightCurrentChat();
+      
       const chatHistory = document.getElementById('chat-history');
       chatHistory.innerHTML = ''; // Clear existing messages
 
       messages.forEach(msg => {
-        const messageElement = this.messageHandler.createMessageElement(msg.role, msg.content, msg.format, chatId);
+        const messageElement = this.messageHandler.createMessageElement(msg.role, msg.content, msg.format, chatId, msg.id);
         chatHistory.appendChild(messageElement);
       });
 
       chatHistory.scrollTop = chatHistory.scrollHeight;
       console.log('Chat history loaded and displayed');
-      this.updateChatList(); // Update to highlight the current chat
+      
+      this.isNewChat = false;
     } catch (error) {
       console.error('Error loading chat history:', error);
       this.displayError('Failed to load chat history. Please try again.');
@@ -175,11 +197,13 @@ export class ChatHistoryManager {
   async updateChatList() {
     console.log('Updating chat list');
     const chatList = document.getElementById('chat-list');
-    chatList.innerHTML = '';
+    chatList.innerHTML = ''; // Clear existing items
 
     try {
+      // Fetch the latest chats from the API
       const chats = await window.api.getAllChats();
       console.log('Retrieved chats:', chats);
+
       if (Array.isArray(chats)) {
         chats.forEach(chatData => {
           const listItem = this.createChatListItem(chatData);
@@ -187,15 +211,8 @@ export class ChatHistoryManager {
         });
 
         this.updateDeleteButton();
+        this.highlightCurrentChat();
 
-        // Highlight the current chat
-        if (this.currentChatId) {
-          const currentChatItem = chatList.querySelector(`li[data-chat-id="${this.currentChatId}"]`);
-          if (currentChatItem) {
-            currentChatItem.classList.add('active');
-            console.log('Current chat highlighted:', this.currentChatId);
-          }
-        }
         console.log('Chat list updated');
       } else {
         throw new Error('Invalid response from server when fetching chats');
@@ -203,6 +220,16 @@ export class ChatHistoryManager {
     } catch (error) {
       console.error('Error updating chat list:', error);
       this.displayError('Failed to update chat list. Please refresh the page.');
+    }
+  }
+
+  highlightCurrentChat() {
+    if (this.currentChatId) {
+      const currentChatItem = document.querySelector(`li[data-chat-id="${this.currentChatId}"]`);
+      if (currentChatItem) {
+        currentChatItem.classList.add('active');
+        console.log('Current chat highlighted:', this.currentChatId);
+      }
     }
   }
 
@@ -223,6 +250,7 @@ export class ChatHistoryManager {
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.classList.add('chat-checkbox');
+    checkbox.id = `chat-checkbox-${chatData.id}`; // Unique ID for each checkbox
     checkbox.checked = this.checkedChats.has(chatData.id);
     checkbox.onchange = (e) => {
       e.stopPropagation();

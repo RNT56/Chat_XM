@@ -28,11 +28,19 @@ export class UIHandler {
     document.getElementById('toggle-sidebar').addEventListener('click', this.toggleSidebar);
 
     document.getElementById('model-select').addEventListener('change', (event) => {
-      this.chatHistoryManager.createNewChat(event.target.value, document.getElementById('output-format').value);
+      if (this.chatHistoryManager.isNewChat) {
+        this.chatHistoryManager.updateExistingChat(event.target.value, document.getElementById('output-format').value);
+      } else {
+        this.chatHistoryManager.createNewChat(event.target.value, document.getElementById('output-format').value);
+      }
     });
 
     document.getElementById('output-format').addEventListener('change', (event) => {
-      this.chatHistoryManager.createNewChat(document.getElementById('model-select').value, event.target.value);
+      if (this.chatHistoryManager.isNewChat) {
+        this.chatHistoryManager.updateExistingChat(document.getElementById('model-select').value, event.target.value);
+      } else {
+        this.chatHistoryManager.createNewChat(document.getElementById('model-select').value, event.target.value);
+      }
     });
 
     // Add event listeners for settings
@@ -58,7 +66,7 @@ export class UIHandler {
 
     const success = await this.messageHandler.sendMessage(model, userInput, outputFormat);
     if (success) {
-      this.chatHistoryManager.saveChatHistory();
+      await this.chatHistoryManager.saveChatHistory();
       this.userInput.value = ''; // Clear the input field after sending
       this.toggleSendButton(); // Hide the send button after sending
     }

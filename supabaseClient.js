@@ -152,8 +152,8 @@ async function getAllChats() {
   }
 }
 
-async function createChatMessage(chatId, role, content, format = 'text') {
-  console.log('Creating chat message:', chatId, role, format);
+async function createChatMessage(chatId, role, content, format = 'text', messageId) {
+  console.log('Creating chat message:', chatId, role, format, messageId);
   const supabase = getSupabase();
   if (!supabase) {
     console.error('Supabase client is not initialized');
@@ -161,9 +161,23 @@ async function createChatMessage(chatId, role, content, format = 'text') {
   }
 
   try {
+    // Check if the message already exists
+    const { data: existingMessage } = await supabase
+      .from('chat_messages')
+      .select('*')
+      .eq('chat_id', chatId)
+      .eq('role', role)
+      .eq('content', content)
+      .single();
+
+    if (existingMessage) {
+      console.log('Message already exists, skipping insertion');
+      return existingMessage;
+    }
+
     const { data, error } = await supabase
       .from('chat_messages')
-      .insert({ chat_id: chatId, role, content, format })
+      .insert({ id: messageId, chat_id: chatId, role, content, format })
       .select()
       .single();
 
@@ -194,15 +208,11 @@ async function getChatMessages(chatId) {
     if (error) throw error;
     console.log('Chat messages retrieved:', data.length);
 
-    // Format messages in JSON
-    const formattedMessages = data.map(message => ({
-      id: message.id, // Include the message ID
-      role: message.role,
-      content: message.content,
-      format: message.format
-    }));
+    // Ensure no duplicates are returned
+    const uniqueMessages = Array.from(new Set(data.map(m => m.id)))
+      .map(id => data.find(m => m.id === id));
 
-    return formattedMessages;
+    return uniqueMessages;
   } catch (error) {
     console.error('Error getting chat messages:', error);
     return [];
