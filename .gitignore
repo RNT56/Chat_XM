@@ -1,2 +1,8 @@
 node_modules/
+backup/
+backup_check/
 .env
+.gitignore
+working/
+search/
+search 1/
