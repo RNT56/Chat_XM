@@ -1,14 +1,18 @@
 export class MessageHandler {
-  constructor(chatProcessor) {
+  constructor(chatProcessor, saveChatHistoryCallback) {
     this.chatProcessor = chatProcessor;
+    this.saveChatHistory = saveChatHistoryCallback;
+    this.currentChatId = null;
+    this.initializeWebSearchToggle();
   }
 
   async sendMessage(model, input, outputFormat) {
+    const useWebSearch = document.getElementById('webSearchToggle').classList.contains('enabled');
     const userInput = input.trim();
     if (userInput === '') return false;
 
     const chatHistory = document.getElementById('chat-history');
-    const userMessage = this.createMessageElement('user', userInput, 'text');
+    const userMessage = this.createMessageElement('user', userInput, outputFormat, this.currentChatId);
     chatHistory.appendChild(userMessage);
 
     document.getElementById('user-input').value = '';
@@ -16,31 +20,104 @@ export class MessageHandler {
     this.showTypingIndicator();
 
     try {
-      const response = await window.api.sendMessage(model, userInput, outputFormat);
-      this.hideTypingIndicator();
+      const response = await window.api.sendMessage(model, userInput, outputFormat, this.currentChatId, useWebSearch);
 
-      console.log('Received response:', response);
-      console.log('Response format:', response.format);
+      // Update the current chat ID if a new chat was created
+      if (response.chatId) {
+        this.setCurrentChatId(response.chatId);
+      }
 
-      const botMessage = this.createMessageElement('bot', response.content, response.format);
-      chatHistory.appendChild(botMessage);
+      // Create bot message
+      const botMessageElement = this.createMessageElement('assistant', response.content, response.format, this.currentChatId);
+      chatHistory.appendChild(botMessageElement);
+
+      // If web search was used and results are not empty, display them
+      if (useWebSearch && response.webSearchResults && response.webSearchResults.length > 0) {
+        const webSearchElement = this.createWebSearchElement(response.webSearchResults);
+        chatHistory.appendChild(webSearchElement);
+      }
+
       chatHistory.scrollTop = chatHistory.scrollHeight;
+
+      // Save chat history after receiving bot response
+      if (typeof this.saveChatHistory === 'function') {
+        await this.saveChatHistory();
+      } else {
+        console.warn('saveChatHistory callback is not properly set');
+      }
 
       return true;
     } catch (error) {
-      console.error('Error communicating with OpenAI:', error);
+      console.error('Error sending message:', error);
+      this.displayErrorMessage('An error occurred while sending the message. Please try again.');
+    } finally {
       this.hideTypingIndicator();
-      this.displayErrorMessage(`Error: ${error.message}`);
-      return false;
     }
+  }
+
+  initializeWebSearchToggle() {
+    const webSearchToggle = document.getElementById('webSearchToggle');
+    webSearchToggle.addEventListener('click', () => {
+      webSearchToggle.classList.toggle('enabled');
+      webSearchToggle.title = webSearchToggle.classList.contains('enabled') ? 'Web Search Enabled' : 'Enable Web Search';
+    });
+  }
+
+  createWebSearchElement(results) {
+    const webSearchDiv = document.createElement('div');
+    webSearchDiv.classList.add('web-search-results');
+
+    const heading = document.createElement('h4');
+    heading.textContent = 'Web Search Results:';
+    webSearchDiv.appendChild(heading);
+
+    results = JSON.parse(results);
+    results.forEach((result, index) => {
+      const resultDiv = document.createElement('div');
+      resultDiv.classList.add('search-result');
+
+      const title = document.createElement('h5');
+      title.textContent = result.title || 'No title';
+      resultDiv.appendChild(title);
+
+      const link = document.createElement('a');
+      link.href = result.link || '#';
+      link.textContent = result.link || 'No link';
+      link.target = '_blank';
+      resultDiv.appendChild(link);
+
+      const summary = document.createElement('p');
+      summary.textContent = result.summary || 'No summary available';
+      resultDiv.appendChild(summary);
+
+      const details = document.createElement('details');
+      const summary2 = document.createElement('summary');
+      summary2.textContent = 'More Details';
+      details.appendChild(summary2);
+
+      const detailsContent = document.createElement('div');
+      detailsContent.innerHTML = `
+        <p><strong>Date Published:</strong> ${result.datePublished || 'Not available'}</p>
+        <p><strong>Domain:</strong> ${result.domainName || 'Not available'}</p>
+        <p><strong>Main Content:</strong> ${(result.pageContent && result.pageContent.mainText) ? result.pageContent.mainText.substring(0, 200) + '...' : 'Not available'}</p>
+        <p><strong>Key Headings:</strong> ${(result.pageContent && result.pageContent.headings) ? result.pageContent.headings.join(', ') : 'Not available'}</p>
+        <p><strong>Number of Links:</strong> ${(result.pageContent && result.pageContent.links) ? result.pageContent.links : 'Not available'}</p>
+        <p><strong>Number of Images:</strong> ${(result.pageContent && result.pageContent.images) ? result.pageContent.images : 'Not available'}</p>
+      `;
+      details.appendChild(detailsContent);
+
+      resultDiv.appendChild(details);
+      webSearchDiv.appendChild(resultDiv);
+    });
+
+    return webSearchDiv;
   }
 
   createMessageElement(role, content, format = 'text', chatId) {
     const messageDiv = document.createElement('div');
     messageDiv.classList.add('message', `${role}-message`);
-    messageDiv.dataset.format = format;
-    messageDiv.dataset.originalContent = content;
     messageDiv.dataset.chatId = chatId;
+    messageDiv.dataset.id = this.generateUniqueId();
     
     const contentDiv = document.createElement('div');
     contentDiv.classList.add('message-content');
@@ -48,31 +125,23 @@ export class MessageHandler {
     console.log('Creating message element. Format:', format);
     console.log('Content:', content);
 
-    if (format === 'markdown' || format === 'code' || format === 'json') {
-      console.log(`Rendering ${format}`);
-      try {
-        let processedContent;
-        if (format === 'code') {
-          processedContent = this.processCodeContent(content);
-        } else if (format === 'json') {
-          processedContent = this.processJsonContent(content);
-        } else {
-          processedContent = this.chatProcessor.processInput(content, format);
-        }
-        console.log(`Processed ${format} content:`, processedContent);
-        contentDiv.innerHTML = processedContent;
-        if (format === 'json') {
-          contentDiv.classList.add('json-content');
-        } else {
-          this.applyCodeHighlighting(contentDiv);
-        }
-      } catch (error) {
-        console.error(`Error parsing ${format}:`, error);
-        contentDiv.textContent = content;
-      }
-    } else {
-      console.log('Displaying as plain text');
-      contentDiv.textContent = content;
+    switch (format) {
+      case 'markdown':
+        contentDiv.innerHTML = this.chatProcessor.processInput(content, 'markdown');
+        this.applyCodeHighlighting(contentDiv);
+        break;
+      case 'code':
+        contentDiv.innerHTML = this.processCodeContent(content);
+        this.applyCodeHighlighting(contentDiv);
+        break;
+      case 'json':
+        contentDiv.innerHTML = this.processJsonContent(content);
+        contentDiv.classList.add('json-content');
+        this.applyCodeHighlighting(contentDiv);
+        break;
+      default:
+        contentDiv.innerHTML = this.chatProcessor.processInput(content, 'markdown');
+        this.applyCodeHighlighting(contentDiv);
     }
     
     messageDiv.appendChild(contentDiv);
@@ -196,10 +265,42 @@ export class MessageHandler {
     try {
       const jsonObject = JSON.parse(content);
       const formattedJson = JSON.stringify(jsonObject, null, 2);
-      return `<pre><code class="json-raw">${this.escapeHtml(formattedJson)}</code></pre>`;
+      return `<pre><code class="language-json">${this.escapeHtml(formattedJson)}</code></pre>`;
     } catch (error) {
       console.error('Error parsing JSON:', error);
-      return `<pre><code class="json-raw">${this.escapeHtml(content)}</code></pre>`;
+      return `<pre><code class="language-json">${this.escapeHtml(content)}</code></pre>`;
     }
+  }
+
+  async loadChatHistory(chatId) {
+    try {
+      const messages = await window.api.getChatMessages(chatId);
+      const chatHistory = document.getElementById('chat-history');
+      chatHistory.innerHTML = '';
+
+      messages.forEach(message => {
+        const messageElement = this.createMessageElement(message.role, message.content, message.format || 'markdown', chatId);
+        chatHistory.appendChild(messageElement);
+      });
+
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+      this.applyCodeHighlighting(chatHistory);
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+      this.displayErrorMessage(`Error loading chat history: ${error.message}`);
+    }
+  }
+
+  setCurrentChatId(chatId) {
+    this.currentChatId = chatId;
+  }
+
+  clearChatHistory() {
+    const chatHistory = document.getElementById('chat-history');
+    chatHistory.innerHTML = '';
+  }
+
+  generateUniqueId() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2);
   }
 }

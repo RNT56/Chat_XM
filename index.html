@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="css/main.css">
     <link rel="stylesheet" href="css/highlight.min.css" id="highlight-dark">
     <link rel="stylesheet" href="css/highlight.min1.css" id="highlight-light">
+    
     <script src="highlight.min.js"></script>
 </head>
 <body class="dark-mode">
@@ -32,6 +33,7 @@
                     <option value="gpt-4o-mini">GPT-4o Mini</option>
                     <option value="claude-v1">Claude v1</option>
                     <option value="claude-instant-v1">Claude Instant v1</option>
+                    <option value="perplexity">Perplexity</option> <!-- Added Perplexity model -->
                 </select>
                 <select id="output-format">
                     <option value="text">Text</option>
@@ -51,8 +53,15 @@
                     <span></span>
                 </div>
                 <div class="input-container">
-                    <textarea id="user-input" placeholder="Type your message..."></textarea>
+                    <input type="text" id="user-input" placeholder="Type your message...">
                     <button id="send-button">Send</button>
+                    <button id="webSearchToggle" class="web-search-toggle" title="Enable Web Search">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        Web
+                    </button>
                 </div>
             </div>
         </div>

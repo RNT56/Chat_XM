@@ -10,6 +10,7 @@ An Electron-based chat application integrating multiple AI models with enhanced 
 - JSON formatting
 - Dark/Light theme toggle
 - Chat history management
+- Web search integration using Selenium WebDriver
 
 ## Installation
 
@@ -23,7 +24,9 @@ An Electron-based chat application integrating multiple AI models with enhanced 
    npm install
    ```
 
-3. Start the application:
+3. Install ChromeDriver for Selenium (make sure it matches your Chrome version)
+
+4. Start the application:
    ```
    npm start
    ```

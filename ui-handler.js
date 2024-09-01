@@ -2,16 +2,21 @@ export class UIHandler {
   constructor(messageHandler, chatHistoryManager) {
     this.messageHandler = messageHandler;
     this.chatHistoryManager = chatHistoryManager;
+    this.sendButton = document.getElementById('send-button');
+    this.userInput = document.getElementById('user-input');
   }
 
   initializeEventListeners() {
-    document.getElementById('send-button').addEventListener('click', () => this.sendMessage());
-    document.getElementById('user-input').addEventListener('keydown', (event) => {
+    this.sendButton.addEventListener('click', () => this.sendMessage());
+    this.userInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
         this.sendMessage();
       }
     });
+
+    // Add input event listener to show/hide send button
+    this.userInput.addEventListener('input', () => this.toggleSendButton());
 
     document.getElementById('new-chat').addEventListener('click', () => {
       const currentModel = document.getElementById('model-select').value;
@@ -36,16 +41,26 @@ export class UIHandler {
     document.getElementById('save-settings').addEventListener('click', this.saveSettings);
   }
 
+  toggleSendButton() {
+    if (this.userInput.value.trim() !== '') {
+      this.sendButton.style.display = 'inline-block';
+    } else {
+      this.sendButton.style.display = 'none';
+    }
+  }
+
   async sendMessage() {
     const model = document.getElementById('model-select').value;
     const outputFormat = document.getElementById('output-format').value;
-    const userInput = document.getElementById('user-input').value.trim();
+    const userInput = this.userInput.value.trim();
 
     if (userInput === '') return;
 
     const success = await this.messageHandler.sendMessage(model, userInput, outputFormat);
     if (success) {
       this.chatHistoryManager.saveChatHistory();
+      this.userInput.value = ''; // Clear the input field after sending
+      this.toggleSendButton(); // Hide the send button after sending
     }
   }
 

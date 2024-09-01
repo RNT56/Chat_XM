@@ -36,6 +36,8 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding-bottom: 10px;
+  padding-right: 20px;
 }
 
 #chat-history {

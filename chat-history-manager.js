@@ -3,77 +3,146 @@ export class ChatHistoryManager {
     this.messageHandler = messageHandler;
     this.uiHandler = uiHandler;
     this.currentChatId = null;
+    this.isNewChat = true;
     this.deleteButton = null;
+    this.checkedChats = new Set();
     this.initializeDeleteButton();
     this.initializeEventListeners();
+    console.log('ChatHistoryManager initialized');
   }
 
-  createNewChat(model, outputFormat) {
-    if (this.currentChatId) {
-      this.saveChatHistory();
+  displayError(message) {
+    console.error(message);
+    if (this.uiHandler && typeof this.uiHandler.displayErrorMessage === 'function') {
+      this.uiHandler.displayErrorMessage(message);
+    }
+  }
+
+  async createNewChat(model, outputFormat) {
+    console.log('Creating new chat:', { model, outputFormat });
+
+    // Save the complete previous chat to Supabase if it's not a new chat
+    if (this.currentChatId && !this.isNewChat) {
+      console.log('Saving previous chat:', this.currentChatId);
+      await this.saveChatHistory();
     }
 
-    this.currentChatId = Date.now().toString();
+    // Clean the chat window
     const chatHistory = document.getElementById('chat-history');
     chatHistory.innerHTML = '';
     document.getElementById('user-input').value = '';
+    console.log('Chat window cleaned');
 
+    // Reset the current chat ID and set isNewChat to true
+    this.setCurrentChatId(null);
+    this.isNewChat = true;
+    this.messageHandler.setCurrentChatId(null);
+
+    // Update the model and output format
     document.getElementById('model-select').value = model;
     document.getElementById('output-format').value = outputFormat;
+    console.log('Model and output format updated in UI');
 
+    // Add a new chat indicator to the chat window
     const newChatIndicator = document.createElement('div');
     newChatIndicator.textContent = `New chat started with model: ${model} and output format: ${outputFormat}`;
     newChatIndicator.classList.add('new-chat-indicator');
     chatHistory.appendChild(newChatIndicator);
+    console.log('New chat indicator added to chat window');
 
-    this.updateChatList();
+    // Update the chat list in the sidebar
+    console.log('Updating chat list in sidebar');
+    await this.updateChatList();
   }
 
-   saveChatHistory() {
+  async saveChatHistory() {
+    console.log('Saving chat history for chat:', this.currentChatId);
+    if (!this.currentChatId) {
+      console.log('No current chat ID, skipping save');
+      return;
+    }
+
     const chatHistory = document.getElementById('chat-history');
     const messages = Array.from(chatHistory.children)
       .filter(el => el.classList.contains('message'))
       .map(msg => {
         const contentElement = msg.querySelector('.message-content');
         return {
-          role: msg.classList.contains('user-message') ? 'user' : 'bot',
-          content: msg.dataset.originalContent || contentElement.textContent, // Use original content if available
+          role: msg.classList.contains('user-message') ? 'user' : 'assistant',
+          content: msg.dataset.originalContent || contentElement.textContent,
           format: msg.dataset.format || 'text'
         };
       });
 
-    if (messages.length === 0) return;
+    console.log('Messages to save:', messages);
 
-    const chatName = messages[0].content.substring(0, 30) + '...';
-    const chatData = { 
-      id: this.currentChatId, 
-      name: chatName, 
-      messages,
-      model: document.getElementById('model-select').value,
-      outputFormat: document.getElementById('output-format').value,
-      timestamp: Date.now()
-    };
-    
-    localStorage.setItem(`chat_${this.currentChatId}`, JSON.stringify(chatData));
+    if (messages.length === 0) {
+      console.log('No messages to save, returning');
+      return;
+    }
+
+    try {
+      if (this.isNewChat) {
+        // Create a new chat in Supabase
+        const chatName = messages[0].content.substring(0, 30) + '...';
+        console.log('Creating new chat:', chatName);
+        const newChat = await window.api.createChat(chatName);
+        this.setCurrentChatId(newChat.id);
+        this.isNewChat = false;
+
+        // Save all messages to Supabase
+        for (const message of messages) {
+          console.log('Saving new message:', message);
+          await window.api.createChatMessage(this.currentChatId, message.role, message.content, message.format);
+        }
+      } else {
+        // Update the chat name with the first message content
+        const chatName = messages[0].content.substring(0, 30) + '...';
+        console.log('Updating chat name:', chatName);
+        await window.api.updateChat(this.currentChatId, chatName);
+
+        // Get existing messages from Supabase
+        const existingMessages = await window.api.getChatMessages(this.currentChatId);
+        const existingMessageIds = new Set(existingMessages.map(m => m.id));
+
+        // Save only new messages to Supabase
+        for (const message of messages) {
+          if (!existingMessageIds.has(message.id)) {
+            console.log('Saving new message:', message);
+            await window.api.createChatMessage(this.currentChatId, message.role, message.content, message.format);
+          }
+        }
+      }
+      console.log('All new messages saved successfully');
+    } catch (error) {
+      console.error('Error saving chat history:', error);
+      this.displayError('Failed to save chat history. Some data may be lost.');
+    }
   }
 
-  loadChatHistory(chatId) {
-    const chatData = JSON.parse(localStorage.getItem(`chat_${chatId}`));
-    if (!chatData) return;
+  async loadChatHistory(chatId) {
+    console.log('Loading chat history for chat:', chatId);
+    try {
+      const messages = await window.api.getChatMessages(chatId);
+      console.log('Retrieved messages:', messages);
+      this.setCurrentChatId(chatId);
+      this.messageHandler.clearChatHistory();
 
-    this.currentChatId = chatId;
-    const chatHistory = document.getElementById('chat-history');
-    chatHistory.innerHTML = '';
+      const chatHistory = document.getElementById('chat-history');
+      chatHistory.innerHTML = ''; // Clear existing messages
 
-    document.getElementById('model-select').value = chatData.model;
-    document.getElementById('output-format').value = chatData.outputFormat;
+      messages.forEach(msg => {
+        const messageElement = this.messageHandler.createMessageElement(msg.role, msg.content, msg.format, chatId);
+        chatHistory.appendChild(messageElement);
+      });
 
-    chatData.messages.forEach(msg => {
-      const messageElement = this.messageHandler.createMessageElement(msg.role, msg.content, msg.format);
-      chatHistory.appendChild(messageElement);
-    });
-
-    chatHistory.scrollTop = chatHistory.scrollHeight;
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+      console.log('Chat history loaded and displayed');
+      this.updateChatList(); // Update to highlight the current chat
+    } catch (error) {
+      console.error('Error loading chat history:', error);
+      this.displayError('Failed to load chat history. Please try again.');
+    }
   }
 
   addCheckboxToMessage(messageElement, chatId) {
@@ -103,52 +172,68 @@ export class ChatHistoryManager {
     });
   }
 
-  updateChatList() {
+  async updateChatList() {
+    console.log('Updating chat list');
     const chatList = document.getElementById('chat-list');
     chatList.innerHTML = '';
 
-    const chats = Object.keys(localStorage)
-      .filter(key => key.startsWith('chat_'))
-      .map(key => JSON.parse(localStorage.getItem(key)))
-      .sort((a, b) => b.timestamp - a.timestamp);
+    try {
+      const chats = await window.api.getAllChats();
+      console.log('Retrieved chats:', chats);
+      if (Array.isArray(chats)) {
+        chats.forEach(chatData => {
+          const listItem = this.createChatListItem(chatData);
+          chatList.appendChild(listItem);
+        });
 
-    chats.forEach(chatData => {
-      const listItem = this.createChatListItem(chatData);
-      chatList.appendChild(listItem);
-    });
+        this.updateDeleteButton();
 
-    this.updateDeleteButton();
-
-    // Highlight the current chat
-    if (this.currentChatId) {
-      const currentChatItem = chatList.querySelector(`li[data-chat-id="${this.currentChatId}"]`);
-      if (currentChatItem) {
-        currentChatItem.classList.add('active');
+        // Highlight the current chat
+        if (this.currentChatId) {
+          const currentChatItem = chatList.querySelector(`li[data-chat-id="${this.currentChatId}"]`);
+          if (currentChatItem) {
+            currentChatItem.classList.add('active');
+            console.log('Current chat highlighted:', this.currentChatId);
+          }
+        }
+        console.log('Chat list updated');
+      } else {
+        throw new Error('Invalid response from server when fetching chats');
       }
+    } catch (error) {
+      console.error('Error updating chat list:', error);
+      this.displayError('Failed to update chat list. Please refresh the page.');
     }
   }
 
   createChatListItem(chatData) {
+    console.log('Creating chat list item:', chatData);
     const listItem = document.createElement('li');
     listItem.dataset.chatId = chatData.id;
-    
+
     const chatName = document.createElement('span');
     chatName.textContent = chatData.name;
     chatName.classList.add('chat-name');
-    
+
     chatName.onclick = (e) => {
       e.stopPropagation();
       this.editChatNameInline(chatName, chatData.id);
     };
-    
+
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.classList.add('chat-checkbox');
+    checkbox.checked = this.checkedChats.has(chatData.id);
     checkbox.onchange = (e) => {
       e.stopPropagation();
+      if (checkbox.checked) {
+        this.checkedChats.add(chatData.id);
+      } else {
+        this.checkedChats.delete(chatData.id);
+      }
       this.updateDeleteButton();
     };
-    
+
     listItem.appendChild(chatName);
     listItem.appendChild(checkbox);
 
@@ -158,63 +243,82 @@ export class ChatHistoryManager {
   }
 
   updateDeleteButton() {
-    const checkedChats = document.querySelectorAll('#chat-list .chat-checkbox:checked');
-    
-    if (checkedChats.length > 0) {
+    console.log('Checked chats:', this.checkedChats.size);
+
+    if (this.checkedChats.size > 0) {
       this.deleteButton.style.display = 'block';
     } else {
       this.deleteButton.style.display = 'none';
     }
   }
 
-  deleteSelectedChats() {
-    const checkedChats = document.querySelectorAll('#chat-list .chat-checkbox:checked');
-    if (confirm(`Are you sure you want to delete ${checkedChats.length} chat(s)?`)) {
+  async deleteSelectedChats() {
+    console.log('Deleting selected chats:', this.checkedChats.size);
+    if (confirm(`Are you sure you want to delete ${this.checkedChats.size} chat(s)?`)) {
       let currentChatDeleted = false;
-      checkedChats.forEach(checkbox => {
-        const chatId = checkbox.closest('li').dataset.chatId;
-        localStorage.removeItem(`chat_${chatId}`);
-        if (this.currentChatId === chatId) {
-          document.getElementById('chat-history').innerHTML = '';
-          this.currentChatId = null;
-          currentChatDeleted = true;
+      for (const chatId of this.checkedChats) {
+        try {
+          console.log('Deleting chat:', chatId);
+          await window.api.deleteChat(chatId);
+          if (this.currentChatId === chatId) {
+            document.getElementById('chat-history').innerHTML = '';
+            this.setCurrentChatId(null);
+            currentChatDeleted = true;
+            console.log('Current chat deleted');
+          }
+        } catch (error) {
+          console.error('Error deleting chat:', chatId, error);
+          this.displayError(`Failed to delete chat ${chatId}. Please try again.`);
         }
-      });
-      this.updateChatList();
+      }
+      this.checkedChats.clear();
+      await this.updateChatList();
       if (currentChatDeleted) {
-        this.selectMostRecentChat();
+        await this.selectMostRecentChat();
       }
     }
     this.updateDeleteButton();
   }
 
-  selectMostRecentChat() {
-    const chats = Object.keys(localStorage)
-      .filter(key => key.startsWith('chat_'))
-      .map(key => JSON.parse(localStorage.getItem(key)))
-      .sort((a, b) => b.timestamp - a.timestamp);
-
-    if (chats.length > 0) {
-      this.loadChatHistory(chats[0].id);
-    } else {
-      this.createNewChat(document.getElementById('model-select').value, document.getElementById('output-format').value);
+  async selectMostRecentChat() {
+    console.log('Selecting most recent chat');
+    try {
+      const chats = await window.api.getAllChats();
+      console.log('Retrieved chats for selection:', chats);
+      if (chats.length > 0) {
+        await this.loadChatHistory(chats[0].id);
+      } else {
+        console.log('No existing chats, creating new chat');
+        const currentModel = document.getElementById('model-select').value;
+        const currentOutputFormat = document.getElementById('output-format').value;
+        await this.createNewChat(currentModel, currentOutputFormat);
+      }
+    } catch (error) {
+      console.error('Error selecting most recent chat:', error);
+      this.displayError('Failed to select a chat. Please try again.');
     }
   }
 
-  editChatNameInline(chatNameElement, chatId) {
+  async editChatNameInline(chatNameElement, chatId) {
+    console.log('Editing chat name inline:', chatId);
     const currentName = chatNameElement.textContent;
     const input = document.createElement('input');
     input.type = 'text';
     input.value = currentName;
     input.classList.add('chat-name-input');
 
-    const saveName = () => {
+    const saveName = async () => {
       const newName = input.value.trim();
       if (newName && newName !== currentName) {
-        const chatData = JSON.parse(localStorage.getItem(`chat_${chatId}`));
-        chatData.name = newName;
-        localStorage.setItem(`chat_${chatId}`, JSON.stringify(chatData));
-        chatNameElement.textContent = newName;
+        try {
+          console.log('Updating chat name:', chatId, newName);
+          await window.api.updateChat(chatId, newName);
+          chatNameElement.textContent = newName;
+        } catch (error) {
+          console.error('Error updating chat name:', error);
+          chatNameElement.textContent = currentName;
+          this.displayError('Failed to update chat name. Please try again.');
+        }
       } else {
         chatNameElement.textContent = currentName;
       }
@@ -240,16 +344,6 @@ export class ChatHistoryManager {
     input.select();
   }
 
-  deleteChat(chatId) {
-    if (confirm('Are you sure you want to delete this chat?')) {
-      localStorage.removeItem(`chat_${chatId}`);
-      if (this.currentChatId === chatId) {
-        this.createNewChat(document.getElementById('model-select').value, document.getElementById('output-format').value);
-      }
-      this.updateChatList();
-    }
-  }
-
   initializeDeleteButton() {
     this.deleteButton = document.createElement('button');
     this.deleteButton.id = 'delete-chats';
@@ -257,11 +351,19 @@ export class ChatHistoryManager {
     this.deleteButton.onclick = () => this.deleteSelectedChats();
     this.deleteButton.style.display = 'none';
     document.querySelector('.sidebar-bottom-buttons').appendChild(this.deleteButton);
+    console.log('Delete button initialized');
   }
 
   initializeEventListeners() {
     document.addEventListener('updateDeleteButton', () => {
       this.updateDeleteButton();
     });
+    console.log('Event listeners initialized');
+  }
+
+  setCurrentChatId(chatId) {
+    this.currentChatId = chatId;
+    this.messageHandler.setCurrentChatId(chatId);
+    this.updateChatList(); // Refresh the chat list to highlight the current chat
   }
 }

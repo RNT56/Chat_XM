@@ -1,7 +1,8 @@
+/* Chat History = Chat Window */
 #chat-history {
   flex: 1;
   overflow-y: auto;
-  border: 1px solid #444;
+  border: 0.5px solid rgba(55, 55, 55, 0.5);
   padding: 10px;
   border-radius: 5px;
   margin-bottom: 10px;
@@ -21,15 +22,11 @@
 
 .user-message {
   align-self: flex-end;
-  background-color: #4caf50;
-  color: white;
   text-align: right;
 }
 
 .bot-message {
   align-self: flex-start;
-  background-color: #333;
-  color: white;
   text-align: left;
 }
 
@@ -84,6 +81,7 @@
   border-radius: 10px;
   padding: 5px 10px;
   margin-bottom: 10px;
+  margin-right: 20px;
 }
 
 .typing-indicator span {
@@ -145,19 +143,6 @@
   word-wrap: break-word;
 }
 
-pre code.hljs {
-  display: block;
-  overflow-x: auto;
-  padding: 1em;
-  background: #f0f0f0;
-  color: #444;
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 14px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  border-radius: 5px;
-}
 
 hr {
   border: none;
