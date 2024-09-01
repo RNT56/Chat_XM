@@ -15,21 +15,38 @@ async function getClaudeCompletion(messages) {
     });
 
     // Format the messages according to the API requirements
-    const formattedMessages = messages.map(msg => {
-      if (msg.role === 'user') {
-        return { role: 'user', content: msg.content };
-      } else if (msg.role === 'assistant') {
-        return { role: 'assistant', content: msg.content };
+    const formattedMessages = [];
+    let lastRole = null;
+
+    for (const msg of messages) {
+      if (msg.role === 'system') {
+        // Add system message at the beginning
+        if (formattedMessages.length === 0) {
+          formattedMessages.push({ role: 'system', content: msg.content });
+        }
+      } else if (msg.role === 'user' || msg.role === 'assistant') {
+        if (msg.role !== lastRole) {
+          formattedMessages.push({ role: msg.role, content: msg.content });
+          lastRole = msg.role;
+        } else if (msg.role === 'user') {
+          // Combine consecutive user messages
+          formattedMessages[formattedMessages.length - 1].content += '\n' + msg.content;
+        }
       }
-    });
+    }
+
+    // Ensure the last message is from the user
+    if (formattedMessages[formattedMessages.length - 1].role !== 'user') {
+      formattedMessages.pop();
+    }
 
     const response = await client.messages.create({
-      model: 'claude-3-5-sonnet-20240620', // Using Claude Sonnet 3.5
+      model: 'claude-3-5-sonnet-20240620',
       messages: formattedMessages,
       max_tokens: 1000,
     });
 
-    return response.data.completion;
+    return response.content[0].text;
   } catch (error) {
     console.error('Error fetching Claude completion:', error.response ? error.response.data : error.message);
     throw error;

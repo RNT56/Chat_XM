@@ -474,3 +474,26 @@ ipcMain.handle('get-chat-completion', async (event, messages) => {
     throw error;
   }
 });
+ipcMain.handle('create-folder', async (event, folderName) => {
+  // Implement folder creation in Supabase
+});
+
+ipcMain.handle('get-folders', async (event) => {
+  // Fetch folders from Supabase
+});
+
+ipcMain.handle('update-folder-name', async (event, folderId, newName) => {
+  // Update folder name in Supabase
+});
+
+ipcMain.handle('delete-folder', async (event, folderId) => {
+  // Delete folder from Supabase
+});
+
+ipcMain.handle('upload-files-to-folder', async (event, folderId, files) => {
+  // Upload files to Supabase and associate them with the folder
+});
+
+ipcMain.handle('get-folder-contents', async (event, folderNames) => {
+  // Fetch folder contents from Supabase
+});

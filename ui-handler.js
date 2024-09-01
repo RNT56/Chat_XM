@@ -4,6 +4,13 @@ export class UIHandler {
     this.chatHistoryManager = chatHistoryManager;
     this.sendButton = document.getElementById('send-button');
     this.userInput = document.getElementById('user-input');
+    this.folderMode = false;
+    this.foldersButton = document.getElementById('folders');
+    this.newChatButton = document.getElementById('new-chat');
+    this.sidebar = document.querySelector('.sidebar');
+    this.folderList = document.getElementById('folder-list');
+
+    this.foldersButton.addEventListener('click', () => this.toggleFolderMode());
   }
 
   initializeEventListeners() {
@@ -84,6 +91,119 @@ export class UIHandler {
     const chatContainer = document.querySelector('.chat-container');
     sidebar.classList.toggle('collapsed');
     chatContainer.classList.toggle('expanded');
+  }
+
+  toggleFolderMode() {
+    this.folderMode = !this.folderMode;
+    this.sidebar.classList.toggle('folder-mode', this.folderMode);
+    this.newChatButton.textContent = this.folderMode ? 'New Folder' : 'New Chat';
+    this.foldersButton.textContent = this.folderMode ? 'Chats' : 'Folders';
+
+    if (this.folderMode) {
+      this.loadFolders();
+    } else {
+      this.chatHistoryManager.loadChatList();
+    }
+  }
+
+  async loadFolders() {
+    try {
+      const folders = await window.api.getFolders();
+      this.renderFolders(folders);
+    } catch (error) {
+      console.error('Error loading folders:', error);
+      this.displayError('Failed to load folders. Please try again.');
+    }
+  }
+
+  renderFolders(folders) {
+    this.folderList.innerHTML = '';
+    folders.forEach(folder => {
+      const folderItem = this.createFolderListItem(folder);
+      this.folderList.appendChild(folderItem);
+    });
+  }
+
+  createFolderListItem(folderData) {
+    const listItem = document.createElement('li');
+    listItem.classList.add('folder-item');
+    listItem.dataset.folderId = folderData.id;
+
+    const folderName = document.createElement('span');
+    folderName.textContent = folderData.name;
+    folderName.classList.add('folder-name');
+
+    const actionsContainer = document.createElement('div');
+    actionsContainer.classList.add('folder-actions');
+
+    const editButton = document.createElement('button');
+    editButton.textContent = '✏️';
+    editButton.onclick = (e) => {
+      e.stopPropagation();
+      this.editFolderName(folderData.id, folderName);
+    };
+
+    const deleteButton = document.createElement('button');
+    deleteButton.textContent = '🗑️';
+    deleteButton.onclick = (e) => {
+      e.stopPropagation();
+      this.deleteFolder(folderData.id);
+    };
+
+    actionsContainer.appendChild(editButton);
+    actionsContainer.appendChild(deleteButton);
+
+    listItem.appendChild(folderName);
+    listItem.appendChild(actionsContainer);
+
+    listItem.ondragover = (e) => this.handleDragOver(e);
+    listItem.ondrop = (e) => this.handleDrop(e, folderData.id);
+
+    return listItem;
+  }
+
+  async editFolderName(folderId, folderNameElement) {
+    const newName = prompt('Enter new folder name:', folderNameElement.textContent);
+    if (newName && newName !== folderNameElement.textContent) {
+      try {
+        await window.api.updateFolderName(folderId, newName);
+        folderNameElement.textContent = newName;
+      } catch (error) {
+        console.error('Error updating folder name:', error);
+        this.displayError('Failed to update folder name. Please try again.');
+      }
+    }
+  }
+
+  async deleteFolder(folderId) {
+    if (confirm('Are you sure you want to delete this folder?')) {
+      try {
+        await window.api.deleteFolder(folderId);
+        this.loadFolders();
+      } catch (error) {
+        console.error('Error deleting folder:', error);
+        this.displayError('Failed to delete folder. Please try again.');
+      }
+    }
+  }
+
+  handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }
+
+  async handleDrop(e, folderId) {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      try {
+        await window.api.uploadFilesToFolder(folderId, files);
+        this.displaySuccess('Files uploaded successfully.');
+      } catch (error) {
+        console.error('Error uploading files:', error);
+        this.displayError('Failed to upload files. Please try again.');
+      }
+    }
   }
 
   openSettings = () => {

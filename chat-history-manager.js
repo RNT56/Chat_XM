@@ -394,4 +394,60 @@ export class ChatHistoryManager {
     this.messageHandler.setCurrentChatId(chatId);
     this.updateChatList(); // Refresh the chat list to highlight the current chat
   }
+
+  async sendMessage(model, userInput, outputFormat) {
+    console.log('Sending message:', { model, userInput, outputFormat });
+
+    const folderReferences = this.extractFolderReferences(userInput);
+    if (folderReferences.length > 0) {
+      const folderContents = await this.getFolderContents(folderReferences);
+      // Append folder contents to the user input
+      userInput += '\n\nContext from referenced folders:\n' + folderContents;
+    }
+
+    const chatHistory = document.getElementById('chat-history');
+    const userMessage = this.messageHandler.createMessageElement('user', userInput, 'text', this.currentChatId);
+    chatHistory.appendChild(userMessage);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+
+    const assistantMessage = this.messageHandler.createMessageElement('assistant', '', 'text', this.currentChatId);
+    chatHistory.appendChild(assistantMessage);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+
+    try {
+      const response = await window.api.sendMessage(model, userInput, outputFormat);
+      console.log('Received response:', response);
+
+      if (response.error) {
+        throw new Error(response.error);
+      }
+
+      const { assistantReply, assistantReplyFormat } = response;
+      this.messageHandler.updateMessageContent(assistantMessage, assistantReply, assistantReplyFormat);
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+
+      // Save the assistant reply to Supabase
+      await window.api.createChatMessage(this.currentChatId, 'assistant', assistantReply, assistantReplyFormat);
+      console.log('Assistant reply saved to Supabase');
+    } catch (error) {
+      console.error('Error sending message:', error);
+      this.displayError('Failed to send message. Please try again.');
+    }
+  }
+
+  extractFolderReferences(input) {
+    const regex = /@(\w+)/g;
+    return (input.match(regex) || []).map(match => match.slice(1));
+  }
+
+  async getFolderContents(folderNames) {
+    try {
+      const contents = await window.api.getFolderContents(folderNames);
+      return contents.map(item => `${item.folderName}: ${item.fileName}\n${item.content}`).join('\n\n');
+    } catch (error) {
+      console.error('Error getting folder contents:', error);
+      this.displayError('Failed to retrieve folder contents. Some context might be missing.');
+      return '';
+    }
+  }
 }
